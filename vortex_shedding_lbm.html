@@ -1,0 +1,627 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vortex Shedding — Channel Flow Past a Cylinder (D2Q9 LBM)</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#10161d; --panel2:#0d131a; --line:#1d2730;
+    --text:#cdd8e1; --muted:#6c7d8c; --accent:#46e0c8; --accent-dim:#1f6b62;
+    --neg:#2bd1ff; --pos:#ff5470; --warn:#ffb454; --bad:#ff5470;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;height:100%}
+  body{display:flex;flex-direction:column;min-height:100%}
+  header{padding:18px 22px 10px;border-bottom:1px solid var(--line)}
+  header h1{margin:0;font-size:15px;font-weight:600;letter-spacing:.02em}
+  header h1 .accent{color:var(--accent)}
+  header p{margin:4px 0 0;font-size:12px;color:var(--muted);font-family:var(--mono)}
+  .wrap{flex:1;display:flex;gap:0;min-height:0}
+  @media(max-width:860px){.wrap{flex-direction:column}}
+
+  /* stage */
+  .stage{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel2)}
+  .canvas-shell{flex:2 1 0;position:relative;display:flex;align-items:center;justify-content:center;padding:14px}
+  canvas{width:100%;height:auto;display:block;border:1px solid var(--line);
+    border-radius:4px;cursor:crosshair;background:#06090d;touch-action:none}
+  .chart-shell{flex:1 1 0;min-height:120px;display:flex;flex-direction:column;
+    padding:8px 22px 14px;border-top:1px solid var(--line)}
+  .chart-shell .chart-head{font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+  .chart-shell canvas{flex:1;width:100%;height:100%;cursor:default;background:#0a0f15}
+  .hint{position:absolute;left:22px;bottom:20px;font-family:var(--mono);font-size:11px;
+    color:var(--muted);pointer-events:none;background:rgba(11,15,20,.6);padding:3px 7px;border-radius:3px}
+  .legend{display:flex;align-items:center;gap:10px;padding:8px 22px 14px;font-family:var(--mono);
+    font-size:11px;color:var(--muted)}
+  .bar{height:9px;width:160px;border-radius:2px;border:1px solid var(--line)}
+
+  /* control rail */
+  .rail{width:312px;flex:none;border-left:1px solid var(--line);background:var(--panel);
+    overflow-y:auto;padding:6px 0}
+  @media(max-width:860px){.rail{width:100%;border-left:none;border-top:1px solid var(--line)}}
+  .grp{padding:14px 18px;border-bottom:1px solid var(--line)}
+  .grp h2{margin:0 0 12px;font-size:10px;font-weight:600;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted)}
+  .row{margin-bottom:13px}
+  .row:last-child{margin-bottom:2px}
+  .row label{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:12px;margin-bottom:6px}
+  .row label .val{font-family:var(--mono);color:var(--accent);font-size:12px}
+  input[type=range]{width:100%;-webkit-appearance:none;appearance:none;height:3px;
+    background:var(--line);border-radius:2px;outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;
+    border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid var(--panel)}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+    background:var(--accent);cursor:pointer;border:2px solid var(--panel)}
+  .seg{display:flex;gap:0;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .seg button{flex:1;background:transparent;color:var(--muted);border:none;padding:7px 4px;
+    font-family:var(--mono);font-size:11px;cursor:pointer;border-right:1px solid var(--line)}
+  .seg button:last-child{border-right:none}
+  .seg button.on{background:var(--accent-dim);color:#eafffb}
+  .btns{display:flex;gap:8px}
+  .btns button{flex:1;background:#16202a;color:var(--text);border:1px solid var(--line);
+    border-radius:4px;padding:9px;font-size:12px;cursor:pointer;font-family:var(--sans)}
+  .btns button:hover{border-color:var(--accent-dim)}
+  .btns button.primary{background:var(--accent-dim);border-color:var(--accent-dim);color:#eafffb}
+  .toggle{display:flex;align-items:center;gap:9px;font-size:12px;cursor:pointer;user-select:none}
+  .toggle input{accent-color:var(--accent);width:15px;height:15px}
+
+  /* readouts */
+  .read{font-family:var(--mono)}
+  .read .line{display:flex;justify-content:space-between;font-size:12px;padding:4px 0;
+    border-bottom:1px dotted var(--line)}
+  .read .line:last-child{border-bottom:none}
+  .read .k{color:var(--muted)}
+  .read .v{color:var(--text)}
+  .regime{margin-top:10px;font-family:var(--mono);font-size:11px;line-height:1.5;
+    padding:8px 10px;border-radius:4px;background:var(--panel2);border:1px solid var(--line)}
+  .regime b{color:var(--accent);font-weight:600}
+  .stab{font-family:var(--mono);font-size:11px;margin-top:8px}
+  .stab.ok{color:var(--accent)} .stab.warn{color:var(--warn)} .stab.bad{color:var(--bad)}
+</style>
+
+<header>
+  <h1><span class="accent">▚</span> Vortex Shedding &mdash; channel flow past a cylinder</h1>
+  <p>D2Q9 lattice Boltzmann · 420 × 140 lattice · no-slip walls · von Kármán street</p>
+</header>
+
+<div class="wrap">
+  <div class="stage">
+    <div class="canvas-shell">
+      <canvas id="cv"></canvas>
+      <div class="hint">drag the field to move the cylinder · grab the dotted ring to move the detector</div>
+    </div>
+    <div class="legend">
+      <span id="legLo">−ω</span>
+      <div class="bar" id="legBar"></div>
+      <span id="legHi">+ω</span>
+      <span style="margin-left:auto" id="fps">— fps</span>
+    </div>
+    <div class="chart-shell">
+      <div class="chart-head">optical detector signal &mdash; fraction red (1) vs blue (0)</div>
+      <canvas id="chart"></canvas>
+    </div>
+  </div>
+
+  <div class="rail">
+    <div class="grp">
+      <h2>Flow parameters</h2>
+      <div class="row">
+        <label>Reynolds number <span class="val" id="vRe">150</span></label>
+        <input type="range" id="sRe" min="1" max="300" step="1" value="150">
+      </div>
+      <div class="row">
+        <label>Inflow speed (lattice) <span class="val" id="vU">0.080</span></label>
+        <input type="range" id="sU" min="0.02" max="0.14" step="0.005" value="0.08">
+      </div>
+      <div class="row">
+        <label>Cylinder diameter (cells) <span class="val" id="vD">26</span></label>
+        <input type="range" id="sD" min="6" max="60" step="1" value="26">
+      </div>
+    </div>
+
+    <div class="grp">
+      <h2>Optical detector</h2>
+      <div class="row">
+        <label>Beam diameter (cells) <span class="val" id="vDet">22</span></label>
+        <input type="range" id="sDet" min="3" max="60" step="1" value="22">
+      </div>
+    </div>
+
+    <div class="grp">
+      <h2>Visualization</h2>
+      <div class="row">
+        <div class="seg" id="segMode">
+          <button data-m="vort" class="on">vorticity</button>
+          <button data-m="speed">speed</button>
+          <button data-m="press">pressure</button>
+          <button data-m="mix">2-fluid</button>
+        </div>
+      </div>
+      <div class="row">
+        <label class="toggle"><input type="checkbox" id="tracers"> tracer streaklines</label>
+      </div>
+      <div class="row">
+        <label>Solver steps / frame <span class="val" id="vSpf">12</span></label>
+        <input type="range" id="sSpf" min="1" max="30" step="1" value="12">
+      </div>
+    </div>
+
+    <div class="grp">
+      <h2>Controls</h2>
+      <div class="btns">
+        <button id="bPlay" class="primary">Pause</button>
+        <button id="bReset">Reset field</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h2>Live readouts</h2>
+      <div class="read">
+        <div class="line"><span class="k">Re</span><span class="v" id="rRe">150</span></div>
+        <div class="line"><span class="k">viscosity ν</span><span class="v" id="rNu">—</span></div>
+        <div class="line"><span class="k">relaxation τ</span><span class="v" id="rTau">—</span></div>
+        <div class="line"><span class="k">Mach number</span><span class="v" id="rMa">—</span></div>
+        <div class="line"><span class="k">St (measured)</span><span class="v" id="rStM">—</span></div>
+        <div class="line"><span class="k">St (Roshko fit)</span><span class="v" id="rStE">—</span></div>
+        <div class="line"><span class="k">shed period</span><span class="v" id="rPer">—</span></div>
+        <div class="line"><span class="k">detector signal</span><span class="v" id="rDet">—</span></div>
+      </div>
+      <div class="regime" id="regime"></div>
+      <div class="stab" id="stab"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ---------- D2Q9 Lattice Boltzmann, BGK collision, halfway bounce-back ---------- */
+const NX = 420, NY = 140;
+const N  = NX*NY;
+// lattice directions: 0 rest, 1-4 axes, 5-8 diagonals
+const EX = [0, 1, 0,-1, 0, 1,-1,-1, 1];
+const EY = [0, 0, 1, 0,-1, 1, 1,-1,-1];
+const W  = [4/9, 1/9,1/9,1/9,1/9, 1/36,1/36,1/36,1/36];
+const OPP= [0, 3, 4, 1, 2, 7, 8, 5, 6];
+const CS2 = 1/3;                       // lattice speed of sound squared
+const idx = (x,y)=> x + y*NX;
+
+let F  = Array.from({length:9}, ()=> new Float32Array(N));
+let FN = Array.from({length:9}, ()=> new Float32Array(N));
+const RHO = new Float32Array(N);
+const UX  = new Float32Array(N);
+const UY  = new Float32Array(N);
+const SOLID = new Uint8Array(N);
+
+// passive-scalar dye for the two-fluid view — D2Q5 advection–diffusion
+const WQ=[1/3,1/6,1/6,1/6,1/6];
+let G  = Array.from({length:5}, ()=> new Float32Array(N));
+let GN = Array.from({length:5}, ()=> new Float32Array(N));
+const CFIELD = new Float32Array(N);
+let tauG = 0.53, omegaG = 1/tauG, scalarOn = true;   // dye always simulated so the detector reads in any view
+
+// parameters
+let Re = 150, u0 = 0.08, diam = 26;
+let tau = 0.6, omega = 1/tau, nu = 0;
+let cx = Math.round(NX*0.28), cy = Math.round(NY*0.5)+2;
+let running = true, mode = "vort", showTracers = false, stepsPerFrame = 12;
+
+// optical detector — samples the dye/scalar field over a disk
+let dx = Math.round(NX*0.55), dy = Math.round(NY*0.5), detDiam = 22;
+let detVal = 0.5; const detHist = []; const DET_MAXH = 2000;
+
+function computeTau(){
+  nu  = u0 * diam / Re;             // ν = U·D/Re   (lattice units)
+  tau = 3*nu + 0.5;                 // ν = c_s²(τ−½) = (τ−½)/3
+  omega = 1/tau;
+}
+
+function buildSolid(){
+  SOLID.fill(0);
+  for(let x=0;x<NX;x++){            // no-slip channel walls (top & bottom)
+    SOLID[idx(x,0)]=1; SOLID[idx(x,NY-1)]=1;
+  }
+  const r2 = (diam/2)*(diam/2);
+  for(let y=1;y<NY-1;y++) for(let x=0;x<NX;x++){
+    const dx=x-cx, dy=y-cy;
+    if(dx*dx+dy*dy <= r2) SOLID[idx(x,y)]=1;
+  }
+}
+
+function feq(i, rho, ux, uy, u2){
+  const eu = EX[i]*ux + EY[i]*uy;
+  return W[i]*rho*(1 + eu/CS2 + eu*eu/(2*CS2*CS2) - u2/(2*CS2));
+}
+
+function initField(){
+  computeTau();
+  buildSolid();
+  for(let c=0;c<N;c++){
+    RHO[c]=1; UX[c]=u0; UY[c]=0;
+    const u2=u0*u0;
+    for(let i=0;i<9;i++) F[i][c]=feq(i,1,u0,0,u2);
+  }
+  // seed asymmetry so shedding can start
+  for(let y=1;y<NY-1;y++){
+    const c=idx(2,y);
+    const pert = u0*0.05*Math.sin(2*Math.PI*y/NY);
+    const u2=(u0*u0)+(pert*pert);
+    for(let i=0;i<9;i++) F[i][c]=feq(i,1,u0,pert,u2);
+  }
+  resetProbe();
+  resetTracers();
+  if(scalarOn) initScalar();
+}
+
+/* collide (in place) + record macroscopic fields */
+function collide(){
+  for(let c=0;c<N;c++){
+    if(SOLID[c]) continue;
+    let rho=0, mx=0, my=0;
+    for(let i=0;i<9;i++){ const f=F[i][c]; rho+=f; mx+=EX[i]*f; my+=EY[i]*f; }
+    const ux=mx/rho, uy=my/rho, u2=ux*ux+uy*uy;
+    RHO[c]=rho; UX[c]=ux; UY[c]=uy;
+    for(let i=0;i<9;i++){
+      F[i][c] += omega*(feq(i,rho,ux,uy,u2) - F[i][c]);
+    }
+  }
+}
+
+/* stream F -> FN with halfway bounce-back at solids */
+function stream(){
+  for(let i=0;i<9;i++) FN[i].fill(0);
+  for(let y=0;y<NY;y++) for(let x=0;x<NX;x++){
+    const c=idx(x,y);
+    if(SOLID[c]) continue;
+    for(let i=0;i<9;i++){
+      const xt=x+EX[i], yt=y+EY[i];
+      if(xt<0||xt>=NX||yt<0||yt>=NY){ FN[OPP[i]][c]+=F[i][c]; continue; }
+      const t=idx(xt,yt);
+      if(SOLID[t]) FN[OPP[i]][c]+=F[i][c];   // reflect back into this cell
+      else         FN[i][t]      =F[i][c];   // stream to neighbour
+    }
+  }
+  const tmp=F; F=FN; FN=tmp;
+}
+
+/* inflow (equilibrium, fixed velocity) + zero-gradient outflow */
+function boundaries(){
+  const u2=u0*u0;
+  for(let y=1;y<NY-1;y++){
+    const c=idx(0,y);
+    RHO[c]=1; UX[c]=u0; UY[c]=0;
+    for(let i=0;i<9;i++) F[i][c]=feq(i,1,u0,0,u2);
+    const cR=idx(NX-1,y), cL=idx(NX-2,y);   // open outflow
+    for(let i=0;i<9;i++) F[i][cR]=F[i][cL];
+  }
+}
+
+function initScalar(){
+  for(let c=0;c<N;c++){
+    const y=(c/NX)|0;
+    const C=(y<NY/2)?1:-1;                       // top half = fluid A, bottom = fluid B
+    CFIELD[c]=C;
+    const ux=UX[c]||u0, uy=UY[c]||0;
+    for(let i=0;i<5;i++) G[i][c]=WQ[i]*C*(1+(EX[i]*ux+EY[i]*uy)/CS2);
+  }
+}
+function scalarCollide(){
+  for(let c=0;c<N;c++){
+    if(SOLID[c]) continue;
+    const C=G[0][c]+G[1][c]+G[2][c]+G[3][c]+G[4][c];
+    CFIELD[c]=C;
+    const ux=UX[c], uy=UY[c];
+    for(let i=0;i<5;i++){
+      const geq=WQ[i]*C*(1+(EX[i]*ux+EY[i]*uy)/CS2);
+      G[i][c]+=omegaG*(geq-G[i][c]);
+    }
+  }
+}
+function scalarStream(){
+  for(let i=0;i<5;i++) GN[i].fill(0);
+  for(let y=0;y<NY;y++) for(let x=0;x<NX;x++){
+    const c=idx(x,y);
+    if(SOLID[c]) continue;
+    for(let i=0;i<5;i++){
+      const xt=x+EX[i], yt=y+EY[i];
+      if(xt<0||xt>=NX||yt<0||yt>=NY){ GN[OPP[i]][c]+=G[i][c]; continue; }
+      const t=idx(xt,yt);
+      if(SOLID[t]) GN[OPP[i]][c]+=G[i][c];   // no-flux bounce-back at walls & cylinder
+      else         GN[i][t]      =G[i][c];
+    }
+  }
+  const tmp=G; G=GN; GN=tmp;
+}
+function scalarBoundaries(){
+  for(let y=1;y<NY-1;y++){
+    const C=(y<NY/2)?1:-1;                   // two streams meet at the centreline
+    const c=idx(0,y);
+    for(let i=0;i<5;i++) G[i][c]=WQ[i]*C*(1+(EX[i]*u0)/CS2);
+    const cR=idx(NX-1,y), cL=idx(NX-2,y);    // open outflow
+    for(let i=0;i<5;i++) G[i][cR]=G[i][cL];
+  }
+}
+function step(){
+  collide();
+  if(scalarOn) scalarCollide();
+  stream();
+  if(scalarOn) scalarStream();
+  boundaries();
+  if(scalarOn) scalarBoundaries();
+  probeTick();
+}
+
+/* ---------- shedding-frequency probe (downstream uy zero-crossings) ---------- */
+let probeLastSign=0, probeCross=[], probeSteps=0, measuredPeriod=0;
+function resetProbe(){ probeLastSign=0; probeCross.length=0; probeSteps=0; measuredPeriod=0; }
+function probeTick(){
+  probeSteps++;
+  let px = cx + Math.round(diam*2.0); if(px>NX-3) px=NX-3;
+  const v = UY[idx(px, cy)];
+  const s = v>0?1:(v<0?-1:0);
+  if(s!==0 && probeLastSign!==0 && s!==probeLastSign){
+    probeCross.push(probeSteps);
+    if(probeCross.length>24) probeCross.shift();
+  }
+  if(s!==0) probeLastSign=s;
+  if(probeCross.length>=6){
+    let sum=0; for(let k=1;k<probeCross.length;k++) sum+=probeCross[k]-probeCross[k-1];
+    const halfPer = sum/(probeCross.length-1);
+    measuredPeriod = 2*halfPer;            // full period in solver steps
+  }
+}
+
+/* ---------- tracer streaklines ---------- */
+let TR=[]; const NTR=2600;
+function resetTracers(){
+  TR=new Array(NTR);
+  for(let k=0;k<NTR;k++) TR[k]={x:Math.random()*NX, y:1+Math.random()*(NY-2)};
+}
+function advectTracers(){
+  for(let k=0;k<NTR;k++){
+    const p=TR[k];
+    let ix=p.x|0, iy=p.y|0;
+    if(ix<0)ix=0; if(ix>NX-1)ix=NX-1; if(iy<0)iy=0; if(iy>NY-1)iy=NY-1;
+    const c=idx(ix,iy);
+    p.x += UX[c]*stepsPerFrame*0.9;
+    p.y += UY[c]*stepsPerFrame*0.9;
+    if(p.x>=NX-1 || p.x<1 || p.y<1 || p.y>NY-2 || SOLID[idx(p.x|0,p.y|0)]){
+      p.x=1; p.y=1+Math.random()*(NY-2);   // reseed at inlet
+    }
+  }
+}
+
+/* ---------- optical detector: mean dye fraction over a disk ---------- */
+function sampleDetector(){
+  const r=detDiam/2, r2=r*r;
+  const x0=Math.max(0,Math.floor(dx-r)), x1=Math.min(NX-1,Math.ceil(dx+r));
+  const y0=Math.max(0,Math.floor(dy-r)), y1=Math.min(NY-1,Math.ceil(dy+r));
+  let sum=0,n=0;
+  for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+    const ax=x-dx, ay=y-dy; if(ax*ax+ay*ay>r2) continue;
+    const c=idx(x,y); if(SOLID[c]) continue;
+    sum += (CFIELD[c]+1)*0.5; n++;        // C=+1 -> 1 (all red), C=-1 -> 0 (all blue)
+  }
+  if(n>0) detVal = Math.max(0,Math.min(1,sum/n));
+}
+
+/* ---------- colour maps ---------- */
+function lerp(a,b,t){return a+(b-a)*t;}
+function divmap(t){ // t in [-1,1] : cyan(neg) -> dark -> magenta-red(pos)
+  const z=[14,21,29];
+  if(t<0){ const a=Math.min(1,-t); return [lerp(z[0],43,a),lerp(z[1],209,a),lerp(z[2],255,a)];}
+  else   { const a=Math.min(1, t); return [lerp(z[0],255,a),lerp(z[1],84,a),lerp(z[2],112,a)];}
+}
+const VIR=[[13,8,53],[42,30,123],[33,99,153],[34,168,132],[122,209,81],[253,231,37]];
+function viridis(t){ t=Math.max(0,Math.min(1,t)); const f=t*(VIR.length-1); const i=Math.floor(f),g=f-i;
+  const a=VIR[i],b=VIR[Math.min(i+1,VIR.length-1)]; return [lerp(a[0],b[0],g),lerp(a[1],b[1],g),lerp(a[2],b[2],g)];}
+
+/* ---------- render ---------- */
+const cv=document.getElementById("cv"); cv.width=NX; cv.height=NY;
+const ctx=cv.getContext("2d");
+const off=document.createElement("canvas"); off.width=NX; off.height=NY;
+const offc=off.getContext("2d");
+const img=offc.createImageData(NX,NY);
+
+function render(){
+  const d=img.data;
+  const vScale = 1/(0.18*u0+1e-9);     // vorticity normalisation
+  const sMax   = 1.7*u0;
+  for(let y=0;y<NY;y++) for(let x=0;x<NX;x++){
+    const c=idx(x,y); const o=c*4; let r,g,b;
+    if(SOLID[c]){
+      if(y===0||y===NY-1){ r=22;g=30;b=39; } else { r=70;g=82;b=94; } // walls vs cylinder
+    } else if(mode==="vort"){
+      const xm=Math.max(1,x-1), xp=Math.min(NX-2,x+1);
+      const ym=Math.max(1,y-1), yp=Math.min(NY-2,y+1);
+      const w=(UY[idx(xp,y)]-UY[idx(xm,y)]) - (UX[idx(x,yp)]-UX[idx(x,ym)]);
+      const col=divmap(Math.max(-1,Math.min(1,w*vScale))); r=col[0];g=col[1];b=col[2];
+    } else if(mode==="speed"){
+      const sp=Math.hypot(UX[c],UY[c]); const col=viridis(sp/sMax); r=col[0];g=col[1];b=col[2];
+    } else if(mode==="press"){
+      const dp=(RHO[c]-1); const col=divmap(Math.max(-1,Math.min(1,dp*22))); r=col[0];g=col[1];b=col[2];
+    } else { // two-fluid dye: C=+1 -> red (fluid A), C=-1 -> blue (fluid B)
+      const a=(Math.max(-1,Math.min(1,CFIELD[c]))+1)/2;   // 0 blue .. 1 red
+      r=lerp(50,232,a); g=lerp(132,72,a); b=lerp(235,92,a);
+    }
+    d[o]=r; d[o+1]=g; d[o+2]=b; d[o+3]=255;
+  }
+  offc.putImageData(img,0,0);
+  ctx.imageSmoothingEnabled = (mode!=="vort");
+  ctx.drawImage(off,0,0,NX,NY);
+
+  if(showTracers){
+    ctx.fillStyle="rgba(230,238,245,0.55)";
+    for(let k=0;k<NTR;k++){ const p=TR[k]; ctx.fillRect(p.x,p.y,0.9,0.9); }
+  }
+  // optical detector overlay: dotted ring + faint tint encoding the reading
+  const dr=detDiam/2;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(dx,dy,dr,0,2*Math.PI);
+  ctx.fillStyle="rgba("+Math.round(lerp(50,232,detVal))+","+Math.round(lerp(132,72,detVal))+","+Math.round(lerp(235,92,detVal))+",0.18)";
+  ctx.fill();
+  ctx.setLineDash([2.4,2.4]);
+  ctx.lineWidth=1.3; ctx.strokeStyle="rgba(11,15,20,0.85)"; ctx.stroke();    // dark backing
+  ctx.lineWidth=0.9; ctx.strokeStyle="rgba(240,246,252,0.95)"; ctx.stroke(); // bright ring
+  ctx.setLineDash([]);
+  ctx.fillStyle="rgba(240,246,252,0.95)"; ctx.fillRect(dx-0.6,dy-0.6,1.2,1.2);
+  ctx.restore();
+}
+
+/* ---------- detector stripchart ---------- */
+const chart=document.getElementById("chart"); const cctx=chart.getContext("2d");
+function fitChart(){
+  const r=chart.getBoundingClientRect();
+  chart.width=Math.max(220,Math.round(r.width));
+  chart.height=Math.max(90,Math.round(r.height));
+}
+function dyeColor(v){ return "rgb("+Math.round(lerp(50,232,v))+","+Math.round(lerp(132,72,v))+","+Math.round(lerp(235,92,v))+")"; }
+function drawChart(){
+  const W=chart.width, H=chart.height;
+  cctx.clearRect(0,0,W,H);
+  const padL=40, padR=12, padT=10, padB=16;
+  const x0=padL, x1=W-padR, y0=padT, y1=H-padB, gw=x1-x0, gh=y1-y0;
+  cctx.fillStyle="#0a0f15"; cctx.fillRect(x0,y0,gw,gh);
+  cctx.font="10px ui-monospace,Menlo,monospace"; cctx.textBaseline="middle";
+  [[1,"1.0"],[0.75,""],[0.5,"0.5"],[0.25,""],[0,"0.0"]].forEach(([v,lab])=>{
+    const y=y1-v*gh;
+    cctx.strokeStyle = v===0.5 ? "#243240" : "#18222c";
+    cctx.beginPath(); cctx.moveTo(x0,y); cctx.lineTo(x1,y); cctx.stroke();
+    if(lab){ cctx.fillStyle="#6c7d8c"; cctx.textAlign="right"; cctx.fillText(lab,x0-6,y); }
+  });
+  cctx.textAlign="left"; cctx.fillStyle="#e8485c"; cctx.fillText("red",x0+5,y0+8);
+  cctx.fillStyle="#3284eb"; cctx.fillText("blue",x0+5,y1-8);
+  const cols=Math.min(detHist.length, Math.floor(gw));
+  if(cols>1){
+    const start=detHist.length-cols;
+    let prevx=null, prevy=null;
+    for(let k=0;k<cols;k++){
+      const v=detHist[start+k], X=x1-(cols-1-k), Y=y1-v*gh;
+      if(prevx!==null){ cctx.strokeStyle=dyeColor(v); cctx.lineWidth=1.6;
+        cctx.beginPath(); cctx.moveTo(prevx,prevy); cctx.lineTo(X,Y); cctx.stroke(); }
+      prevx=X; prevy=Y;
+    }
+  }
+  const my=y1-detVal*gh;
+  cctx.fillStyle=dyeColor(detVal); cctx.beginPath(); cctx.arc(x1,my,2.6,0,2*Math.PI); cctx.fill();
+  cctx.font="600 16px ui-monospace,Menlo,monospace"; cctx.textAlign="right"; cctx.textBaseline="top";
+  cctx.fillStyle="#cdd8e1"; cctx.fillText(detVal.toFixed(3), x1-5, y0+3);
+  cctx.textAlign="left"; cctx.font="9px ui-monospace,Menlo,monospace"; cctx.fillStyle="#6c7d8c";
+  cctx.fillText("time →", x0+2, y1+3);
+}
+window.addEventListener("resize", fitChart);
+
+/* ---------- loop ---------- */
+let lastT=performance.now(), frames=0, fpsT=performance.now();
+function frame(){
+  if(running){ for(let s=0;s<stepsPerFrame;s++) step(); if(showTracers) advectTracers(); }
+  sampleDetector();
+  if(running){ detHist.push(detVal); if(detHist.length>DET_MAXH) detHist.shift(); }
+  render();
+  drawChart();
+  frames++;
+  const now=performance.now();
+  if(now-fpsT>500){ document.getElementById("fps").textContent=Math.round(frames*1000/(now-fpsT))+" fps";
+    frames=0; fpsT=now; }
+  updateReadouts();
+  requestAnimationFrame(frame);
+}
+
+/* ---------- readouts ---------- */
+function regimeText(){
+  if(Re<5)   return ["Creeping flow", "Attached, fore&ndash;aft symmetric. No separation."];
+  if(Re<47)  return ["Steady wake", "Fixed pair of counter-rotating recirculation bubbles. No shedding yet."];
+  if(Re<190) return ["Vortex shedding", "Periodic von Kármán street &mdash; alternating vortices peel off each side."];
+  return ["Shedding (laminar 2D)", "Real wakes go 3D / turbulent above ~190; this 2D sim stays laminar."];
+}
+function updateReadouts(){
+  document.getElementById("rRe").textContent=Re;
+  document.getElementById("rNu").textContent=nu.toFixed(4);
+  document.getElementById("rTau").textContent=tau.toFixed(3);
+  document.getElementById("rMa").textContent=(u0/Math.sqrt(CS2)).toFixed(3);
+  document.getElementById("rDet").textContent=detVal.toFixed(3);
+  const stE = Re>47 ? 0.212*(1-21.2/Re) : 0;  // Roshko empirical fit
+  document.getElementById("rStE").textContent = Re>47 ? stE.toFixed(3) : "—";
+  if(measuredPeriod>0 && Re>47){
+    const f=1/measuredPeriod;            // 1/steps
+    const stM=f*diam/u0;
+    document.getElementById("rStM").textContent=stM.toFixed(3);
+    document.getElementById("rPer").textContent=measuredPeriod.toFixed(0)+" steps";
+  } else { document.getElementById("rStM").textContent="—"; document.getElementById("rPer").textContent="—"; }
+  const [rt,rd]=regimeText();
+  document.getElementById("regime").innerHTML="<b>"+rt+"</b><br>"+rd;
+  const stab=document.getElementById("stab");
+  if(tau<0.505){ stab.className="stab bad"; stab.textContent="⚠ τ≈"+tau.toFixed(3)+" — unstable; lower Re or raise inflow speed."; }
+  else if(tau<0.53){ stab.className="stab warn"; stab.textContent="τ near stability limit ("+tau.toFixed(3)+")."; }
+  else if(u0/Math.sqrt(CS2)>0.22){ stab.className="stab warn"; stab.textContent="Mach high — compressibility error rising."; }
+  else { stab.className="stab ok"; stab.textContent="✓ stable operating point."; }
+}
+
+/* ---------- UI ---------- */
+const $=id=>document.getElementById(id);
+function reparam(rebuild){ computeTau(); if(rebuild) buildSolid(); resetProbe(); }
+$("sRe").oninput=e=>{Re=+e.target.value;$("vRe").textContent=Re;reparam(false);};
+$("sU").oninput =e=>{u0=+e.target.value;$("vU").textContent=u0.toFixed(3);reparam(false);};
+$("sD").oninput =e=>{diam=+e.target.value;$("vD").textContent=diam;reparam(true);};
+$("sSpf").oninput=e=>{stepsPerFrame=+e.target.value;$("vSpf").textContent=stepsPerFrame;};
+$("sDet").oninput=e=>{detDiam=+e.target.value;$("vDet").textContent=detDiam;};
+$("tracers").onchange=e=>{showTracers=e.target.checked; if(showTracers) resetTracers();};
+$("segMode").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+  mode=b.dataset.m;
+  $("segMode").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+  updateLegend();
+});
+$("bPlay").onclick=e=>{running=!running; e.target.textContent=running?"Pause":"Play";};
+$("bReset").onclick=()=>initField();
+
+/* click / drag to move cylinder */
+let dragging=false, dragTarget=null;
+function gridXY(ev){
+  const r=cv.getBoundingClientRect();
+  const cl=(ev.touches?ev.touches[0]:ev);
+  return { gx:(cl.clientX-r.left)/r.width*NX, gy:(cl.clientY-r.top)/r.height*NY };
+}
+function startDrag(ev){
+  const {gx,gy}=gridXY(ev);
+  const rr=detDiam/2+4;                       // grab the detector if click lands on/near its ring
+  dragTarget = ((gx-dx)*(gx-dx)+(gy-dy)*(gy-dy) <= rr*rr) ? "det" : "cyl";
+  moveDrag(ev);
+}
+function moveDrag(ev){
+  const {gx,gy}=gridXY(ev);
+  if(dragTarget==="det"){
+    const rad=detDiam/2;
+    dx=Math.max(rad, Math.min(NX-1-rad, gx));
+    dy=Math.max(1+rad, Math.min(NY-2-rad, gy));
+  } else {
+    cx=Math.max(diam, Math.min(NX*0.7, Math.round(gx)));
+    cy=Math.max(diam/2+2, Math.min(NY-diam/2-2, Math.round(gy)));
+    buildSolid(); resetProbe();
+  }
+}
+cv.addEventListener("mousedown",e=>{dragging=true;startDrag(e);});
+cv.addEventListener("mousemove",e=>{if(dragging)moveDrag(e);});
+window.addEventListener("mouseup",()=>dragging=false);
+cv.addEventListener("touchstart",e=>{dragging=true;startDrag(e);e.preventDefault();},{passive:false});
+cv.addEventListener("touchmove",e=>{if(dragging)moveDrag(e);e.preventDefault();},{passive:false});
+window.addEventListener("touchend",()=>dragging=false);
+
+function updateLegend(){
+  const bar=$("legBar");
+  if(mode==="speed"){ $("legLo").textContent="0"; $("legHi").textContent="|u|";
+    bar.style.background="linear-gradient(90deg,rgb(13,8,53),rgb(33,99,153),rgb(34,168,132),rgb(253,231,37))"; }
+  else if(mode==="press"){ $("legLo").textContent="−p"; $("legHi").textContent="+p";
+    bar.style.background="linear-gradient(90deg,rgb(43,209,255),rgb(14,21,29),rgb(255,84,112))"; }
+  else if(mode==="mix"){ $("legLo").textContent="fluid B"; $("legHi").textContent="fluid A";
+    bar.style.background="linear-gradient(90deg,rgb(50,132,235),rgb(141,102,163),rgb(232,72,92))"; }
+  else { $("legLo").textContent="−ω"; $("legHi").textContent="+ω";
+    bar.style.background="linear-gradient(90deg,rgb(43,209,255),rgb(14,21,29),rgb(255,84,112))"; }
+}
+
+updateLegend();
+initField();
+fitChart();
+requestAnimationFrame(frame);
+</script>
